@@ -372,23 +372,103 @@
     return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  function normalizeI18nKey(value) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[’‘]/g, "'")
+      .replace(/[“”]/g, '"')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  const I18N_CATALOG = new Map();
+  Object.entries(I18N_EXACT).forEach(([ro, en]) => {
+    I18N_CATALOG.set(ro, en);
+    I18N_CATALOG.set(normalizeI18nKey(ro), en);
+  });
+  I18N_PHRASES.forEach(([ro, en]) => {
+    I18N_CATALOG.set(ro, en);
+    I18N_CATALOG.set(normalizeI18nKey(ro), en);
+  });
+
+  const I18N_DYNAMIC_RULES = [
+    [/^(\d+)\s+produse\s+g[aă]site$/i, m => `${m[1]} products found`],
+    [/^(\d+)\s+produse$/i, m => `${m[1]} products`],
+    [/^(\d+)\s+echipamente$/i, m => `${m[1]} equipment items`],
+    [/^istoric\s+inspectii\s*\((\d+)\)$/i, m => `Inspection history (${m[1]})`],
+    [/^cod\s+qr\s+echipament$/i, () => 'Equipment QR code'],
+    [/^durata\s+de\s+viata\s+maxima\s+[—-]\s+(.+?)\s+din\s+(.+?)\s+ani\s+\((.+?)\)$/i, m => `Maximum service life — ${m[1]} of ${m[2]} years (${m[3]})`],
+    [/^durata\s+de\s+viata\s+in\s+lucru\s+[—-]\s+(.+?)\s+din\s+(.+?)\s+ani(?:\s+\((.+?)\))?$/i, m => `Working service life — ${m[1]} of ${m[2]} years${m[3] ? ` (${m[3]})` : ''}`],
+    [/^inspectie\s+depasita\s+cu\s+(\d+)\s+zile!?$/i, m => `Inspection OVERDUE by ${m[1]} days!`],
+    [/^inspectie\s+scadenta\s+in\s+(\d+)\s+zile(?:\s+\((.+?)\))?$/i, m => `Inspection due in ${m[1]} days${m[2] ? ` (${m[2]})` : ''}`],
+    [/^apropiata\s+de\s+limita\s+duratei\s+de\s+utilizare$/i, () => 'Approaching the end of service life'],
+    [/^marcajele\s+data\s+fabricatie\s+sunt\s+partial\s+lizibile\.?$/i, () => 'Manufacturing date markings are partially legible.'],
+    [/^ultima:\s*(.+)$/i, m => `Last: ${m[1]}`],
+    [/^urm:\s*(.+)$/i, m => `Next: ${m[1]}`],
+    [/^foto\s+(\d+)$/i, m => `Photo ${m[1]}`],
+    [/^manual\s+direct\s+neverificat\/lipsa\s+[—-]\s+adauga\s+pdf\s+sau\s+link\s+oficial\s+direct\s+catre\s+manualul\s+produsului\.?$/i, () => 'Direct manual not verified/missing — add an official PDF or direct official link to the product manual.']
+  ];
+
+  const I18N_RAW_DYNAMIC_RULES = [
+    [/^(.+?)\s+[—-]\s+selectat\s+din\s+catalog$/iu, m => `${m[1]} — selected from catalog`]
+  ];
+
+  const I18N_SAFE_PHRASES = I18N_PHRASES
+    .filter(([ro]) => ro.length > 8 && /\s/.test(ro))
+    .sort((a, b) => b[0].length - a[0].length);
+
   function replaceI18nPhrase(text, ro, en) {
-    if (ro.length <= 4) {
-      const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegExp(ro)})(?=$|[^\\p{L}\\p{N}])`, 'giu');
-      return text.replace(re, `$1${en}`);
+    return String(text).split(ro).join(en);
+  }
+
+  function finalizeEnglishText(value) {
+    return String(value)
+      .replace(/\bian\./giu, 'Jan')
+      .replace(/\bfeb\./giu, 'Feb')
+      .replace(/\bmar\./giu, 'Mar')
+      .replace(/\bapr\./giu, 'Apr')
+      .replace(/\bmai\b/giu, 'May')
+      .replace(/\biun\./giu, 'Jun')
+      .replace(/\biul\./giu, 'Jul')
+      .replace(/\baug\./giu, 'Aug')
+      .replace(/\bsept\./giu, 'Sep')
+      .replace(/\boct\./giu, 'Oct')
+      .replace(/\bnov\./giu, 'Nov')
+      .replace(/\bdec\./giu, 'Dec');
+  }
+
+  function translateByDynamicRules(text) {
+    for (const [re, handler] of I18N_RAW_DYNAMIC_RULES) {
+      const match = String(text).match(re);
+      if (match) return handler(match);
     }
-    return text.split(ro).join(en);
+    const normalized = normalizeI18nKey(text);
+    for (const [re, handler] of I18N_DYNAMIC_RULES) {
+      const match = normalized.match(re);
+      if (match) return handler(match);
+    }
+    return null;
   }
 
   function translateText(text) {
     if (!text || currentLang === 'ro') return text;
-    const trimmed = text.trim();
+    const raw = String(text);
+    const leading = raw.match(/^\s*/)?.[0] || '';
+    const trailing = raw.match(/\s*$/)?.[0] || '';
+    const trimmed = raw.trim();
     if (!trimmed) return text;
-    const exact = I18N_EXACT[trimmed];
-    if (exact) return text.replace(trimmed, exact);
-    let out = text;
-    I18N_PHRASES.forEach(([ro, en]) => { out = replaceI18nPhrase(out, ro, en); });
-    return out;
+
+    const exact = I18N_CATALOG.get(trimmed) || I18N_CATALOG.get(normalizeI18nKey(trimmed));
+    if (exact) return `${leading}${finalizeEnglishText(exact)}${trailing}`;
+
+    const dynamic = translateByDynamicRules(trimmed);
+    if (dynamic) return `${leading}${finalizeEnglishText(dynamic)}${trailing}`;
+
+    let out = trimmed;
+    I18N_SAFE_PHRASES.forEach(([ro, en]) => { out = replaceI18nPhrase(out, ro, en); });
+    return `${leading}${finalizeEnglishText(out)}${trailing}`;
   }
 
   function tr(text) {
@@ -575,8 +655,8 @@ body {
   filter: drop-shadow(0 2px 8px rgba(0,0,0,.8));
 }
 .logo-image {
-  width: 248px;
-  height: 52px;
+  width: 360px;
+  height: 68px;
   object-fit: contain;
   object-position: left center;
   display: block;
@@ -2004,8 +2084,8 @@ textarea { resize: vertical; min-height: 80px; }
   .logo-name { font-size: 20px; }
   .logo-shield { width: 34px; height: 34px; }
   .logo-image {
-    width: 154px;
-    height: 44px;
+    width: 172px;
+    height: 48px;
     object-fit: contain;
     object-position: left center;
   }
@@ -2132,7 +2212,7 @@ textarea { resize: vertical; min-height: 80px; }
 }
 
 @media (max-width: 380px) {
-  .logo-image { width: 124px; height: 38px; }
+  .logo-image { width: 140px; height: 42px; }
   .stats-row { grid-template-columns: 1fr 1fr; }
   .equip-hero-meta { grid-template-columns: 1fr; }
   #main { padding: 10px 10px 78px; }
@@ -4429,16 +4509,98 @@ function kaskManualUrl(model) {
   return 'https://www.kask-safety.com/en/discontinued-items.htm';
 }
 
+const PETZL_MANUAL_PAGES = {
+  'Newton': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/NEWTON-international-version',
+  'Newton Eashook': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/NEWTON-international-version',
+  'Newton Fast': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/NEWTON-FAST-International-Version',
+  'Avao Bod Fast': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/AVAO-European-Version',
+  'Avao Sit Fast': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/AVAO-European-Version',
+  'Falcon': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/FALCON-ASCENT',
+  'Falcon Ascent': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/FALCON-ASCENT',
+  'Sequoia': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/SEQUOIA',
+  'Sequoia SRT': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/SEQUOIA',
+  'Sequoia Plus': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/SEQUOIA-PLUS',
+  'Podium': 'https://www.petzl.com/INT/en/Professional/Harnesses/technical-content-product/PODIUM',
+  'Vertex Best': 'https://www.petzl.com/INT/en/Professional/Helmets/technical-content-product/VERTEX',
+  'Vertex Vent': 'https://www.petzl.com/INT/en/Professional/Helmets/technical-content-product/VERTEX-VENT',
+  'Vertex Hi-Viz': 'https://www.petzl.com/INT/en/Professional/Helmets/technical-content-product/VERTEX-HI-VIZ',
+  'Strato': 'https://www.petzl.com/INT/en/Professional/Helmets/technical-content-product/STRATO',
+  'Strato Vent': 'https://www.petzl.com/INT/en/Professional/Helmets/technical-content-product/STRATO-VENT',
+  'Strato Vent Hi-Viz': 'https://www.petzl.com/INT/en/Professional/Helmets/technical-content-product/STRATO-VENT-HI-VIZ',
+  'Parallel 10.5mm': 'https://www.petzl.com/INT/en/Professional/Ropes/technical-content-product/PARALLEL-10-5-mm',
+  'Parallel 10.5mm Dry': 'https://www.petzl.com/INT/en/Professional/Ropes/technical-content-product/PARALLEL-10-5-mm',
+  'Grillon': 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/technical-content-product/GRILLON',
+  'Grillon Hook': 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/technical-content-product/GRILLON-HOOK-European-Version',
+  'Grillon Slide': 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/technical-content-product/GRILLON',
+  'Absorbica-Y MGO 150': 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/technical-content-product/ABSORBICA-Y-MGO-European-Version',
+  'Absorbica-Y MGO 200': 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/technical-content-product/ABSORBICA-Y-MGO-European-Version',
+  'Absorbica-I MGO 150': 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/technical-content-product/ABSORBICA',
+  'Absorbica-I MGO 200': 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/technical-content-product/ABSORBICA',
+  'Jane': 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/technical-content-product/JANE-I',
+  'Rescue': 'https://www.petzl.com/INT/en/Professional/Kits/technical-content-product/JAG-RESCUE-KIT',
+  'Rescue S': 'https://www.petzl.com/INT/en/Professional/Pulleys/technical-content-product/RESCUE-S',
+  'Rescue M': 'https://www.petzl.com/INT/en/Professional/Pulleys/technical-content-product/RESCUE-M',
+  'Twin': 'https://www.petzl.com/INT/en/Professional/Pulleys/technical-content-product/TWIN-RELEASE',
+  'Pro Traxion': 'https://www.petzl.com/INT/en/Professional/Pulleys/technical-content-product/PRO-TRAXION',
+  'Mini Traxion': 'https://www.petzl.com/INT/en/Professional/Pulleys/technical-content-product/MINI-TRAXION',
+  'Fixe': 'https://www.petzl.com/INT/en/Professional/Pulleys/technical-content-product/FIXE',
+  'OK Triact-Lock': 'https://www.petzl.com/INT/en/Professional/Connectors/technical-content-product/OK',
+  'OK Screw-Lock': 'https://www.petzl.com/INT/en/Professional/Connectors/technical-content-product/OK',
+  'William Triact-Lock': 'https://www.petzl.com/INT/en/Professional/Connectors/technical-content-product/WILLIAM',
+  'William Ball-Lock': 'https://www.petzl.com/INT/en/Professional/Connectors/technical-content-product/WILLIAM',
+  'Am\'D Triact-Lock': 'https://www.petzl.com/INT/en/Professional/Connectors/technical-content-product/Am-D',
+  'Anneau 60cm 7mm': 'https://www.petzl.com/INT/en/Professional/Anchors/technical-content-product/ANNEAU',
+  'Anneau 120cm 7mm': 'https://www.petzl.com/INT/en/Professional/Anchors/technical-content-product/ANNEAU',
+  'Coeur Pulse': 'https://www.petzl.com/INT/en/Professional/Anchors/technical-content-product/COEUR-PULSE-12-mm',
+  'ASAP Rope 10.5mm': 'https://www.petzl.com/INT/en/Professional/Mobile-fall-arresters/technical-content-product/ASAP',
+  'ASAP Rope 11mm': 'https://www.petzl.com/INT/en/Professional/Mobile-fall-arresters/technical-content-product/ASAP',
+  'ASAP': 'https://www.petzl.com/INT/en/Professional/Mobile-fall-arresters/technical-content-product/ASAP',
+  'ASAP 2026': 'https://www.petzl.com/INT/en/Professional/Mobile-fall-arresters/technical-content-product/ASAP',
+  'ASAP Lock': 'https://www.petzl.com/INT/en/Professional/Mobile-fall-arresters/technical-content-product/ASAP-LOCK',
+  'ASAP\'SORBER Axess 20': 'https://www.petzl.com/INT/en/Professional/Mobile-fall-arresters/technical-content-product/ASAP-SORBER-AXESS',
+  'Pantin Click': 'https://www.petzl.com/INT/en/Professional/Rope-clamps/technical-content-product/PANTIN-CLICK',
+  'Knee Grab': 'https://www.petzl.com/INT/en/Professional/Rope-clamps/technical-content-product/KNEE-GRAB',
+  'Naja': 'https://www.petzl.com/INT/en/Professional/Anchors/technical-content-product/NAJA',
+  'Eject': 'https://www.petzl.com/INT/en/Professional/Anchors/technical-content-product/EJECT',
+  'I\'D S': 'https://www.petzl.com/INT/en/Professional/Descenders/technical-content-product/I-D-S',
+  'I\'D L': 'https://www.petzl.com/INT/en/Professional/Descenders/technical-content-product/I-D-L',
+  'RIG': 'https://www.petzl.com/INT/en/Professional/Descenders/technical-content-product/RIG',
+  'Maestro S': 'https://www.petzl.com/INT/en/Professional/Descenders/technical-content-product/MAESTRO-S',
+  'Maestro L': 'https://www.petzl.com/INT/en/Professional/Descenders/technical-content-product/MAESTRO-L',
+  'Ascension': 'https://www.petzl.com/INT/en/Professional/Rope-clamps/technical-content-product/ASCENSION',
+  'Croll': 'https://www.petzl.com/INT/en/Professional/Rope-clamps/technical-content-product/CROLL',
+  'Basic': 'https://www.petzl.com/INT/en/Professional/Rope-clamps/technical-content-product/BASIC',
+  'Ascentree': 'https://www.petzl.com/INT/en/Professional/Rope-clamps/technical-content-product/ASCENTREE',
+  'Top Croll': 'https://www.petzl.com/INT/en/Professional/Rope-clamps/technical-content-product/CROLL',
+  'Rollclip Z': 'https://www.petzl.com/INT/en/Professional/Pulleys/technical-content-product/ROLLCLIP-Z',
+  'Ring Open': 'https://www.petzl.com/INT/en/Professional/Anchors/technical-content-product/RING-OPEN'
+};
+
+const EDELRID_MANUAL_PAGES = {
+  'Tectum': 'https://edelrid.com/int-en/professional/helmet/tectum',
+  'Tectum Air': 'https://edelrid.com/int-en/professional/helmet/tectum-air',
+  'Treerex II': 'https://edelrid.com/int-en/professional/work-safety-harness/treerex',
+  'Flex Lite': 'https://edelrid.com/int-en/professional/work-safety-harness/flex-lite',
+  'Flex Pro': 'https://edelrid.com/int-en/professional/work-safety-harness/flex-pro',
+  'Flex Pro Plus': 'https://edelrid.com/int-en/professional/work-safety-harness/flex-pro-plus',
+  'Ohmega': 'https://edelrid.com/int-en/professional/belay-devices/ohmega',
+  'Fuse': 'https://edelrid.com/int-en/professional/fall-arresters-shop/fuse',
+  'Maxiom Rig Triple': 'https://edelrid.com/int-en/professional/connectors-shop/maxiom-rig-triple',
+  'Megawatt': 'https://edelrid.com/int-en/professional/descenders-shop/megawatt'
+};
+
 function generatedManualLink(product) {
   const brand = String(product.brand || '').trim();
   const model = String(product.model || '').trim();
   const slug = manualSlug(model);
 
   if (/^petzl$/i.test(brand)) {
+    const url = PETZL_MANUAL_PAGES[model];
+    if (!url) return null;
     return {
-      url: 'https://m.petzl.com/INT/en/Professional/technical-content-product/' + petzlManualSlug(model),
-      label: 'Petzl Technical notice / PDF downloads - pagina produsului',
-      sourceUrl: 'https://www.petzl.com/INT/en/Professional',
+      url,
+      label: 'Petzl Technical notice / PPE checklist - pagina oficială produs',
+      sourceUrl: 'https://www.petzl.com/INT/en/Professional/technical-content-product',
       mode: 'product-manual'
     };
   }
@@ -4475,20 +4637,17 @@ function generatedManualLink(product) {
     };
   }
   if (/^edelrid$/i.test(brand)) {
+    const url = EDELRID_MANUAL_PAGES[model];
+    if (!url) return null;
     return {
-      url: 'https://edelrid.com/us-en/professional/' + edelridManualCategory(product.type) + '/' + slug,
-      label: 'EDELRID PDF downloads / user manual - pagina produsului',
-      sourceUrl: 'https://edelrid.com/us-en/professional',
+      url,
+      label: 'EDELRID PDF downloads / user manual - pagina oficială produs',
+      sourceUrl: 'https://edelrid.com/int-en/service/downloads',
       mode: 'product-manual'
     };
   }
   if (/^climbing technology$/i.test(brand)) {
-    return {
-      url: 'https://www.climbingtechnology.com/en/technical-documentation',
-      label: 'Climbing Technology Technical Documentation - user instructions / CE / PPE check',
-      sourceUrl: 'https://www.climbingtechnology.com/en/technical-documentation',
-      mode: 'manufacturer-docs'
-    };
+    return null;
   }
   if (/^kask$/i.test(brand)) {
     return {
@@ -4499,167 +4658,28 @@ function generatedManualLink(product) {
     };
   }
   if (/s[oö]ll|honeywell/i.test(brand)) {
-    return {
-      url: 'https://automation.honeywell.com/us/en/support/documents-downloads',
-      label: 'Honeywell/Söll document downloads - selectează modelul exact',
-      sourceUrl: 'https://automation.honeywell.com/us/en/support/documents-downloads',
-      mode: 'manufacturer-docs'
-    };
+    return null;
   }
   if (/^haca/i.test(brand)) {
-    return {
-      url: 'https://haca.com/service/downloads/',
-      label: 'HACA downloads - manual produs/sistem',
-      sourceUrl: 'https://haca.com/service/downloads/',
-      mode: 'manufacturer-docs'
-    };
+    return null;
   }
   return null;
 }
 
-// ═══════════════════════════════════════════════════════
-// MANUALE VERIFICATE MANUAL (hand-verified, per produs)
-// ───────────────────────────────────────────────────────
-// Fiecare intrare a fost verificată pe site-ul oficial al producătorului.
-//   page = pagina tehnică STABILĂ a produsului (afișează mereu PDF-ul curent)
-//   pdf  = link direct către notița tehnică PDF (verificat; poate expira la
-//          reeditarea notiței — de aceea `page` rămâne linkul principal)
-// Cheia = `brand||model` normalizat (lowercase, fără diacritice).
-// Doar produsele prezente aici sunt marcate „✓ verificat" în UI.
-// Restul folosesc generatorul euristic și sunt marcate „≈ neverificat".
-const VERIFIED_MANUALS = {
-  // ── PETZL — Batch 1 (Professional section) ──
-  'petzl||asap': {
-    page: 'https://www.petzl.com/INT/en/Professional/Mobile-fall-arresters/technical-content-product/ASAP',
-    label: 'Petzl ASAP — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||asap lock': {
-    page: 'https://www.petzl.com/INT/en/Professional/Mobile-fall-arresters/technical-content-product/ASAP-LOCK',
-    label: 'Petzl ASAP LOCK — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||ascension': {
-    page: 'https://www.petzl.com/INT/en/Professional/Rope-clamps/ASCENSION',
-    label: 'Petzl ASCENSION — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||croll': {
-    page: 'https://www.petzl.com/INT/en/Professional/Rope-clamps/technical-content-product/CROLL',
-    label: 'Petzl CROLL — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||basic': {
-    page: 'https://www.petzl.com/INT/en/Professional/Rope-clamps/technical-content-product/BASIC',
-    label: 'Petzl BASIC — Technical notice (pagina tehnică oficială)'
-  },
-  // ── PETZL — Batch 2 (Connectors + Descenders) ──
-  // Carabinierele OK/William împart aceeași notiță: technical-notice-locking-carabiners
-  'petzl||ok triact-lock': {
-    page: 'https://www.petzl.com/INT/en/Professional/Connectors/OK',
-    label: 'Petzl OK — Technical notice locking carabiners (pagina tehnică oficială)'
-  },
-  'petzl||ok screw-lock': {
-    page: 'https://www.petzl.com/INT/en/Professional/Connectors/OK',
-    label: 'Petzl OK — Technical notice locking carabiners (pagina tehnică oficială)'
-  },
-  'petzl||william triact-lock': {
-    page: 'https://www.petzl.com/INT/en/Professional/Connectors/WILLIAM',
-    label: 'Petzl WILLIAM — Technical notice locking carabiners (pagina tehnică oficială)'
-  },
-  'petzl||william ball-lock': {
-    page: 'https://www.petzl.com/INT/en/Professional/Connectors/WILLIAM',
-    label: 'Petzl WILLIAM — Technical notice locking carabiners (pagina tehnică oficială)'
-  },
-  'petzl||rig': {
-    page: 'https://www.petzl.com/INT/en/Professional/Descenders/technical-content-product/RIG',
-    label: 'Petzl RIG — Technical notice RIG (pagina tehnică oficială)'
-  },
-  // ── PETZL — Batch 3 (Lanyards + energy absorbers) ──
-  'petzl||grillon': {
-    page: 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/technical-content-product/GRILLON',
-    label: 'Petzl GRILLON — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||grillon hook': {
-    page: 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/GRILLON-HOOK-international-version',
-    label: 'Petzl GRILLON HOOK — Technical notice (pagina tehnică oficială)'
-  },
-  // Familia ABSORBICA-Y împarte notița technical-notice-ABSORBICA-I-Y-CE
-  'petzl||absorbica-y mgo 150': {
-    page: 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/ABSORBICA-Y-MGO-International-Version',
-    label: 'Petzl ABSORBICA-Y MGO — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||absorbica-y mgo 200': {
-    page: 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/ABSORBICA-Y-MGO-International-Version',
-    label: 'Petzl ABSORBICA-Y MGO — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||absorbica-i mgo 150': {
-    page: 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/ABSORBICA-I',
-    label: 'Petzl ABSORBICA-I — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||absorbica-i mgo 200': {
-    page: 'https://www.petzl.com/INT/en/Professional/Lanyards-and-energy-absorbers/ABSORBICA-I',
-    label: 'Petzl ABSORBICA-I — Technical notice (pagina tehnică oficială)'
-  },
-  // ── PETZL — Batch 4 (Pulleys + Rope-clamps rămase) ──
-  'petzl||pro traxion': {
-    page: 'https://www.petzl.com/INT/en/Professional/Pulleys/technical-content-product/PRO-TRAXION',
-    label: 'Petzl PRO TRAXION — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||mini traxion': {
-    page: 'https://www.petzl.com/INT/en/Professional/Pulleys/MINI-TRAXION',
-    label: 'Petzl MINI TRAXION — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||tibloc': {
-    page: 'https://www.petzl.com/INT/en/Professional/Rope-clamps/TIBLOC',
-    label: 'Petzl TIBLOC — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||pantin click': {
-    page: 'https://www.petzl.com/INT/en/Professional/Rope-clamps/PANTIN-CLICK',
-    label: 'Petzl PANTIN CLICK — Technical notice (pagina tehnică oficială)'
-  },
-  'petzl||knee grab': {
-    page: 'https://www.petzl.com/INT/en/Professional/Rope-clamps/KNEE-GRAB',
-    label: 'Petzl KNEE GRAB — Technical notice (pagina tehnică oficială)'
-  }
-};
-
-function manualKey(brand, model) {
-  const norm = s => String(s || '')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .trim().toLowerCase();
-  return norm(brand) + '||' + norm(model);
-}
-
-function verifiedManualLink(product) {
-  const entry = VERIFIED_MANUALS[manualKey(product.brand, product.model)];
-  if (!entry) return null;
-  return {
-    url: entry.pdf || entry.page,        // PDF direct dacă există, altfel pagina tehnică
-    pageUrl: entry.page || '',
-    pdfUrl: entry.pdf || '',
-    label: entry.label,
-    sourceUrl: entry.page || entry.pdf || '',
-    mode: 'verified'
-  };
-}
-
 function getUserManualLink(product) {
-  // 1. Manual salvat manual pe produs (input utilizator) — prioritate maximă
   if (product.manualUrl) {
     return {
       url: product.manualUrl,
-      label: product.manualLabel || 'User manual produs (salvat manual)',
+      label: product.manualLabel || 'User manual produs',
       sourceUrl: product.manualUrl,
       mode: 'direct'
     };
   }
-  // 2. Manual verificat manual din tabelul VERIFIED_MANUALS
-  const verified = verifiedManualLink(product);
-  if (verified) return verified;
-  // 3. Generator euristic (NEVERIFICAT — poate duce la pagină inexistentă)
   const generated = generatedManualLink(product);
-  if (generated) { generated.mode = 'generated'; return generated; }
-  // 4. Nimic disponibil
+  if (generated) return generated;
   return {
     url: '',
-    label: 'Manual lipsă - adaugă PDF sau link direct către manualul produsului.',
+    label: 'Manual direct neverificat/lipsă - adaugă PDF sau link oficial direct către manualul produsului.',
     sourceUrl: '',
     mode: 'missing'
   };
@@ -7286,47 +7306,22 @@ function showCatalogProductDetail(pJson) {
 
     <div class="prod-detail-section">
       <div class="prod-detail-label">User manual</div>
-      ${(() => {
-        // Badge de verificare + text explicativ în funcție de sursa linkului
-        const isVerified = manual.mode === 'verified' || manual.mode === 'direct';
-        const badge = manual.mode === 'verified'
-          ? '<span class="recall-badge recall-none">✓ Manual verificat</span>'
-          : manual.mode === 'direct'
-            ? '<span class="recall-badge recall-none">✓ Manual salvat manual</span>'
-            : manual.mode === 'generated'
-              ? '<span class="recall-badge recall-watch">≈ Link auto — neverificat</span>'
-              : manual.mode === 'missing'
-                ? '<span class="recall-badge recall-active">✗ Manual lipsă</span>'
-                : '<span class="recall-badge recall-none">Manual</span>';
-        const desc = manual.mode === 'verified'
-          ? `Link oficial verificat manual către notița tehnică pentru <strong>${p.brand} ${p.model}</strong>. Pagina tehnică afișează întotdeauna PDF-ul curent.`
-          : manual.mode === 'direct'
+      <div class="recall-panel none">
+        <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:10px">
+          ${manual.mode === 'direct'
             ? 'Manual direct salvat pentru acest produs.'
-            : manual.mode === 'generated'
-              ? `⚠ Link generat automat din numele modelului — <strong>neverificat</strong>. Poate duce la o pagină inexistentă. Recomandat: deschide, verifică, iar dacă nu e corect adaugă manual URL-ul exact.`
-              : `Nu există încă PDF sau link direct către manualul produsului <strong>${p.brand} ${p.model}</strong>.`;
-        // Butoane: pentru manualul verificat arătăm și pagina tehnică și PDF-ul (dacă există)
-        let buttons = '';
-        if (manual.mode === 'verified') {
-          const primary = manual.pageUrl || manual.url;
-          buttons = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <a href="${primary}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="text-decoration:none">📘 Deschide manual (pagina tehnică) ↗</a>
-            ${manual.pdfUrl ? `<a href="${manual.pdfUrl}" target="_blank" rel="noopener" class="btn btn-sec btn-sm" style="text-decoration:none">⬇ PDF direct</a>` : ''}
-          </div>`;
-        } else if (manual.url) {
-          buttons = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <a href="${manual.url}" target="_blank" rel="noopener" class="btn ${manual.mode==='generated'?'btn-sec':'btn-primary'} btn-sm" style="text-decoration:none">📘 Deschide User manual ↗</a>
-            ${manual.sourceUrl && manual.sourceUrl!==manual.url ? `<a href="${manual.sourceUrl}" target="_blank" rel="noopener" class="btn btn-sec btn-sm" style="text-decoration:none">Sursă oficială</a>` : ''}
-          </div>`;
-        }
-        return `
-      <div class="recall-panel ${isVerified?'none':(manual.mode==='missing'?'active':'watch')}">
-        <div style="margin-bottom:8px">${badge}</div>
-        <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:10px">${desc}</div>
-        ${buttons}
+            : manual.mode === 'product-manual'
+              ? `Link direct către pagina/PDF-ul de manual pentru <strong>${p.brand} ${p.model}</strong>. Verifică întotdeauna codul exact și lotul imprimat pe echipament.`
+              : manual.mode === 'manufacturer-docs'
+                ? `Link către biblioteca oficială de documente a producătorului pentru <strong>${p.brand} ${p.model}</strong>. Nu este link de căutare Google.`
+                : `Nu există încă PDF sau link direct către manualul produsului <strong>${p.brand} ${p.model}</strong>. Nu folosim linkuri de căutare ca manual.`}
+        </div>
+        ${manual.url ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <a href="${manual.url}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="text-decoration:none">📘 Deschide User manual ↗</a>
+          ${manual.sourceUrl ? `<a href="${manual.sourceUrl}" target="_blank" rel="noopener" class="btn btn-sec btn-sm" style="text-decoration:none">Sursă oficială</a>` : ''}
+        </div>` : ''}
         <div style="font-family:var(--font-m);font-size:11px;color:var(--text3);margin-top:8px">${manual.label}</div>
-      </div>`;
-      })()}
+      </div>
     </div>
 
     <div class="prod-detail-section">
