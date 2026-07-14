@@ -83,15 +83,23 @@
     'SicherShield - Gestiune Echipamente Alpinism': 'SicherShield - Climbing Equipment Management',
     'Principal': 'Main',
     'Dashboard': 'Dashboard',
+    'Situație generală echipamente': 'Equipment overview',
+    'Situatie generala echipamente': 'Equipment overview',
     'Inspecție nouă': 'New inspection',
     'Inspectie noua': 'New inspection',
     'Catalog produse': 'Product catalog',
     'Echipamente': 'Equipment',
+    'Scanare': 'Scan',
     'Scanare NFC/QR': 'NFC/QR scan',
     'Alerte': 'Alerts',
+    'Alerte & Inspecții urgente': 'Alerts & urgent inspections',
+    'Alerte & Inspectii urgente': 'Alerts & urgent inspections',
     'Rapoarte': 'Reports',
+    'Rapoarte & Export': 'Reports & Export',
     'Integrări': 'Integrations',
     'Integrari': 'Integrations',
+    'Setări': 'Settings',
+    'Setari': 'Settings',
     'Google Sheets + Drive': 'Google Sheets + Drive',
     'Setări Integrări': 'Integration settings',
     'Setari Integrari': 'Integration settings',
@@ -106,10 +114,21 @@
     'Expiră curând': 'Expiring soon',
     'Expira curand': 'Expiring soon',
     'Retrase din uz': 'Withdrawn from use',
+    'Operative OK': 'Operational OK',
+    'OPERATIVE OK': 'OPERATIONAL OK',
+    'Necesită atenție': 'Needs attention',
+    'Necesita atentie': 'Needs attention',
+    'NECESITĂ ATENȚIE': 'NEEDS ATTENTION',
+    'NECESITA ATENTIE': 'NEEDS ATTENTION',
+    'Respinse': 'Rejected',
+    'RESPINSE': 'REJECTED',
     'Acțiuni rapide': 'Quick actions',
     'Actiuni rapide': 'Quick actions',
     'Scanează': 'Scan',
     'Scaneaza': 'Scan',
+    'Scanare QR': 'QR scan',
+    'Scanare nouă': 'New scan',
+    'Scanare noua': 'New scan',
     'Adaugă echipament': 'Add equipment',
     'Adauga echipament': 'Add equipment',
     'Exportă date': 'Export data',
@@ -236,6 +255,12 @@
     ['Ultima inspectie', 'Last inspection'],
     ['Inspecție periodică', 'Periodic inspection'],
     ['Inspectie periodica', 'Periodic inspection'],
+    ['Inspecție DEPĂȘITĂ cu', 'Inspection OVERDUE by'],
+    ['Inspectie DEPASITA cu', 'Inspection OVERDUE by'],
+    ['Inspecție scadentă în', 'Inspection due in'],
+    ['Inspectie scadenta in', 'Inspection due in'],
+    ['zile', 'days'],
+    ['zi', 'day'],
     ['inspecții', 'inspections'],
     ['inspectii', 'inspections'],
     ['inspecție', 'inspection'],
@@ -256,10 +281,20 @@
     ['șters', 'deleted'],
     ['sters', 'deleted'],
     ['eroare', 'error'],
-    ['Eroare', 'Error'],
-    ['ani', 'years'],
-    ['an', 'year']
+    ['Eroare', 'Error']
   ].sort((a, b) => b[0].length - a[0].length);
+
+  function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function replaceI18nPhrase(text, ro, en) {
+    if (ro.length <= 4) {
+      const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegExp(ro)})(?=$|[^\\p{L}\\p{N}])`, 'giu');
+      return text.replace(re, `$1${en}`);
+    }
+    return text.split(ro).join(en);
+  }
 
   function translateText(text) {
     if (!text || currentLang === 'ro') return text;
@@ -268,7 +303,7 @@
     const exact = I18N_EXACT[trimmed];
     if (exact) return text.replace(trimmed, exact);
     let out = text;
-    I18N_PHRASES.forEach(([ro, en]) => { out = out.split(ro).join(en); });
+    I18N_PHRASES.forEach(([ro, en]) => { out = replaceI18nPhrase(out, ro, en); });
     return out;
   }
 
@@ -349,7 +384,14 @@
     if (typeof toast === 'function') toast(currentLang === 'en' ? 'Language set to English' : 'Limba setată în română', 'success');
   }
 
+  window.setLanguage = setLanguage;
+  window.applyLanguage = applyLanguage;
+  window.queueApplyLanguage = queueApplyLanguage;
+
   document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-lang-btn]').forEach(btn => {
+      btn.addEventListener('click', () => setLanguage(btn.dataset.langBtn));
+    });
     applyLanguage();
     const observer = new MutationObserver(() => {
       if (!i18nApplying) queueApplyLanguage();
@@ -4257,6 +4299,140 @@ function officialSearchUrl(domain, query) {
   return 'https://www.google.com/search?q=' + encodeURIComponent(`site:${domain} ${query}`);
 }
 
+function manualSlug(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/["']/g, '')
+    .replace(/\+/g, 'plus')
+    .replace(/&/g, 'and')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
+function petzlManualSlug(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/["']/g, '')
+    .replace(/\+/g, 'plus')
+    .replace(/&/g, 'and')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .split('-')
+    .map(part => part ? part[0].toUpperCase() + part.slice(1).toLowerCase() : part)
+    .join('-');
+}
+
+function edelridManualCategory(type) {
+  const t = String(type || '').toLowerCase();
+  if (t.includes('ham')) return 'harnesses';
+  if (t.includes('casca')) return 'helmets';
+  if (t.includes('coarda')) return 'ropes';
+  if (t.includes('carabiniera')) return 'connectors';
+  if (t.includes('scripete')) return 'pulleys';
+  if (t.includes('longa')) return 'lanyards';
+  if (t.includes('blocant') || t.includes('anticadere')) return 'fall-arresters';
+  return 'products';
+}
+
+function kaskManualUrl(model) {
+  const m = String(model || '').toLowerCase();
+  if (m.includes('superplasma')) return 'https://www.kask-safety.com/media/download/superplasma-aq-hi-viz-ce-user-manual.pdf';
+  if (m.includes('zenith x')) return 'https://www.kask-safety.com/media/download/user-manual_zenith-x-asnzs.pdf';
+  if (m.includes('zenith')) return 'https://www.kask-safety.com/media/download/zenith-as-nzs-user-manual.pdf';
+  if (m.includes('quantum')) return 'https://www.kask-safety.com/en/discontinued-items.htm';
+  if (m.includes('primero')) return 'https://www.kask-safety.com/media/download/procedure-and-inspection-sheet_st001_rev1.pdf';
+  return 'https://www.kask-safety.com/en/discontinued-items.htm';
+}
+
+function generatedManualLink(product) {
+  const brand = String(product.brand || '').trim();
+  const model = String(product.model || '').trim();
+  const slug = manualSlug(model);
+
+  if (/^petzl$/i.test(brand)) {
+    return {
+      url: 'https://m.petzl.com/INT/en/Professional/technical-content-product/' + petzlManualSlug(model),
+      label: 'Petzl Technical notice / PDF downloads - pagina produsului',
+      sourceUrl: 'https://www.petzl.com/INT/en/Professional',
+      mode: 'product-manual'
+    };
+  }
+  if (/^camp$/i.test(brand)) {
+    return {
+      url: 'https://www.camp.it/m/us/us/work/products/' + slug,
+      label: 'C.A.M.P. product instructions / downloads - pagina produsului',
+      sourceUrl: 'https://www.camp.it/m/us/us/work',
+      mode: 'product-manual'
+    };
+  }
+  if (/^kong$/i.test(brand)) {
+    return {
+      url: 'https://www.kong.it/en/product/' + slug + '/',
+      label: 'KONG user instructions / downloads - pagina produsului',
+      sourceUrl: 'https://www.kong.it/en/',
+      mode: 'product-manual'
+    };
+  }
+  if (/^singing rock$/i.test(brand)) {
+    return {
+      url: 'https://www.singingrock.com/' + slug,
+      label: 'Singing Rock instructions of use - pagina produsului',
+      sourceUrl: 'https://www.singingrock.com/',
+      mode: 'product-manual'
+    };
+  }
+  if (/^rock exotica$/i.test(brand)) {
+    return {
+      url: 'https://www.rockexotica.com/products/' + slug.replace(/-2$/, ''),
+      label: 'Rock Exotica instructions / warnings - pagina produsului',
+      sourceUrl: 'https://www.rockexotica.com/pages/warnings',
+      mode: 'product-manual'
+    };
+  }
+  if (/^edelrid$/i.test(brand)) {
+    return {
+      url: 'https://edelrid.com/us-en/professional/' + edelridManualCategory(product.type) + '/' + slug,
+      label: 'EDELRID PDF downloads / user manual - pagina produsului',
+      sourceUrl: 'https://edelrid.com/us-en/professional',
+      mode: 'product-manual'
+    };
+  }
+  if (/^climbing technology$/i.test(brand)) {
+    return {
+      url: 'https://www.climbingtechnology.com/en/technical-documentation',
+      label: 'Climbing Technology Technical Documentation - user instructions / CE / PPE check',
+      sourceUrl: 'https://www.climbingtechnology.com/en/technical-documentation',
+      mode: 'manufacturer-docs'
+    };
+  }
+  if (/^kask$/i.test(brand)) {
+    return {
+      url: kaskManualUrl(model),
+      label: 'KASK user manual PDF / product document',
+      sourceUrl: 'https://www.kask-safety.com/',
+      mode: 'product-manual'
+    };
+  }
+  if (/s[oö]ll|honeywell/i.test(brand)) {
+    return {
+      url: 'https://automation.honeywell.com/us/en/support/documents-downloads',
+      label: 'Honeywell/Söll document downloads - selectează modelul exact',
+      sourceUrl: 'https://automation.honeywell.com/us/en/support/documents-downloads',
+      mode: 'manufacturer-docs'
+    };
+  }
+  if (/^haca/i.test(brand)) {
+    return {
+      url: 'https://haca.com/service/downloads/',
+      label: 'HACA downloads - manual produs/sistem',
+      sourceUrl: 'https://haca.com/service/downloads/',
+      mode: 'manufacturer-docs'
+    };
+  }
+  return null;
+}
+
 function getUserManualLink(product) {
   if (product.manualUrl) {
     return {
@@ -4266,20 +4442,13 @@ function getUserManualLink(product) {
       mode: 'direct'
     };
   }
-  const cfg = USER_MANUAL_SOURCES.find(s => s.match.test(product.brand || ''));
-  if (cfg) {
-    return {
-      url: cfg.searchUrl(product),
-      label: cfg.label,
-      sourceUrl: cfg.sourceUrl,
-      mode: 'official-search'
-    };
-  }
+  const generated = generatedManualLink(product);
+  if (generated) return generated;
   return {
-    url: officialSearchUrl(product.brand || '', `${product.brand || ''} ${product.model || ''} user manual instructions`),
-    label: 'Cautare manual producator',
+    url: '',
+    label: 'Manual lipsă - adaugă PDF sau link direct către manualul produsului.',
     sourceUrl: '',
-    mode: 'fallback'
+    mode: 'missing'
   };
 }
 
@@ -6908,12 +7077,16 @@ function showCatalogProductDetail(pJson) {
         <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:10px">
           ${manual.mode === 'direct'
             ? 'Manual direct salvat pentru acest produs.'
-            : `Căutare pregătită pe documentația oficială pentru <strong>${p.brand} ${p.model}</strong>. Verifică întotdeauna codul exact și lotul imprimat pe echipament.`}
+            : manual.mode === 'product-manual'
+              ? `Link direct către pagina/PDF-ul de manual pentru <strong>${p.brand} ${p.model}</strong>. Verifică întotdeauna codul exact și lotul imprimat pe echipament.`
+              : manual.mode === 'manufacturer-docs'
+                ? `Link către biblioteca oficială de documente a producătorului pentru <strong>${p.brand} ${p.model}</strong>. Nu este link de căutare Google.`
+                : `Nu există încă PDF sau link direct către manualul produsului <strong>${p.brand} ${p.model}</strong>. Nu folosim linkuri de căutare ca manual.`}
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        ${manual.url ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <a href="${manual.url}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="text-decoration:none">📘 Deschide User manual ↗</a>
           ${manual.sourceUrl ? `<a href="${manual.sourceUrl}" target="_blank" rel="noopener" class="btn btn-sec btn-sm" style="text-decoration:none">Sursă oficială</a>` : ''}
-        </div>
+        </div>` : ''}
         <div style="font-family:var(--font-m);font-size:11px;color:var(--text3);margin-top:8px">${manual.label}</div>
       </div>
     </div>
@@ -7135,7 +7308,7 @@ async function _uploadCatalogToDrive() {
       lifespan: p.lifespan || 10,
       workLifespan: p.workLifespan || null,
       notes:    p.notes    || '',
-      manualUrl: p.manualUrl || getUserManualLink(p).url,
+      manualUrl: getUserManualLink(p).url || '',
       manualSource: getUserManualLink(p).label,
       recall:   p.recall   ? {
         status:      p.recall.status,
@@ -7193,8 +7366,34 @@ async function generateInspectionPDF(ins, returnBase64 = false) {
     doc.setLineWidth(lw);
     doc.rect(x, ry, w, h, 'S');
   }
+  function pdfClean(value) {
+    return String(value || '')
+      .replace(/Â·/g, ' - ')
+      .replace(/Â°C/g, ' deg C')
+      .replace(/â€”/g, '-')
+      .replace(/â€“/g, '-')
+      .replace(/âœ“/g, 'OK')
+      .replace(/âœ•/g, 'X')
+      .replace(/âš /g, '!')
+      .replace(/Ã„/g, 'Ae').replace(/Ã¤/g, 'ae')
+      .replace(/Ã–/g, 'Oe').replace(/Ã¶/g, 'oe')
+      .replace(/Ãœ/g, 'Ue').replace(/Ã¼/g, 'ue')
+      .replace(/ÃŸ/g, 'ss')
+      .replace(/Äƒ/g, 'a').replace(/Ä‚/g, 'A')
+      .replace(/Ã¢/g, 'a').replace(/Ã‚/g, 'A')
+      .replace(/Ã®/g, 'i').replace(/ÃŽ/g, 'I')
+      .replace(/È™/g, 's').replace(/È˜/g, 'S')
+      .replace(/È›/g, 't').replace(/Èš/g, 'T')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+  function splitPdfText(text, width) {
+    return doc.splitTextToSize(pdfClean(text), width);
+  }
   function txt(text, x, ty, opts = {}) {
-    doc.text(String(text || ''), x, ty, opts);
+    doc.text(pdfClean(text), x, ty, opts);
   }
   function checkBox(x, ty, checked, color = NAVY) {
     doc.setDrawColor(...MGRAY);
@@ -7333,7 +7532,7 @@ async function generateInspectionPDF(ins, returnBase64 = false) {
     triLabel(c.en, c.de, c.ro, cx + 1.5, y + 4, DGRAY);
     setFont(7.5, 'bold', [20, 20, 30]);
     const maxW = col5w - 4;
-    const lines = doc.splitTextToSize(c.val, maxW);
+    const lines = splitPdfText(c.val, maxW);
     txt(lines[0] || '', cx + 1.5, y + ROWH5 - 2);
   });
   y += ROWH5 + 2;
@@ -7388,30 +7587,30 @@ async function generateInspectionPDF(ins, returnBase64 = false) {
 
   let rowBg = true;
   checkKeys.forEach((check, idx) => {
-    needsPage(9);
     const val = checkItems[check];
     const isOk = val === 'ok';
     const isNok = val === 'fail' || val === 'warn';
     const bg = rowBg ? LGRAY : WHITE;
     rowBg = !rowBg;
+    const compText = idx === 0 ? compName : '';
+    const compLines = splitPdfText(compText, colW.comp - 3);
+    const critLines = splitPdfText(check, colW.crit - 3);
+    const rowH = Math.max(8, 4 + Math.max(compLines.length, critLines.length) * 3.6);
+    needsPage(rowH + 1);
 
-    fillRect(M, y, cw, 8, bg);
-    drawRect(M, y, cw, 8, MGRAY);
+    fillRect(M, y, cw, rowH, bg);
+    drawRect(M, y, cw, rowH, MGRAY);
 
     // Component name (only first row)
     setFont(6.5, idx === 0 ? 'bold' : 'normal', idx === 0 ? NAVY : [150, 155, 165]);
-    const compText = idx === 0 ? compName : '';
-    const compLines = doc.splitTextToSize(compText, colW.comp - 3);
-    txt(compLines[0] || '', M + 1.5, y + 5.2);
+    compLines.slice(0, 2).forEach((l, i) => txt(l, M + 1.5, y + 5.2 + i * 3.6));
 
     // Criterion text
     setFont(7, 'normal', [25, 25, 35]);
-    const critLines = doc.splitTextToSize(check, colW.crit - 3);
-    txt(critLines[0] || '', M + colW.comp + 1.5, y + 5.2);
-    if (critLines[1]) {
-      setFont(6, 'normal', DGRAY);
-      txt(critLines[1], M + colW.comp + 1.5, y + 8.5);
-    }
+    critLines.slice(0, 3).forEach((l, i) => {
+      if (i > 0) setFont(6, 'normal', DGRAY);
+      txt(l, M + colW.comp + 1.5, y + 5.2 + i * 3.6);
+    });
 
     // OK / NOK checkboxes
     checkBox(M + colW.comp + colW.crit + 3.5, y + 5.2, isOk, GREEN);
@@ -7429,12 +7628,12 @@ async function generateInspectionPDF(ins, returnBase64 = false) {
     // Vertical lines
     doc.setDrawColor(...MGRAY);
     doc.setLineWidth(0.2);
-    let lx = M + colW.comp; doc.line(lx, y, lx, y + 8);
-    lx += colW.crit; doc.line(lx, y, lx, y + 8);
-    lx += colW.ok; doc.line(lx, y, lx, y + 8);
-    lx += colW.nok; doc.line(lx, y, lx, y + 8);
+    let lx = M + colW.comp; doc.line(lx, y, lx, y + rowH);
+    lx += colW.crit; doc.line(lx, y, lx, y + rowH);
+    lx += colW.ok; doc.line(lx, y, lx, y + rowH);
+    lx += colW.nok; doc.line(lx, y, lx, y + rowH);
 
-    y += 8;
+    y += rowH;
   });
 
   if (checkKeys.length === 0) {
@@ -7471,19 +7670,18 @@ async function generateInspectionPDF(ins, returnBase64 = false) {
   y += 6;
 
   withdrawalCriteria.forEach((crit, i) => {
-    const ROW = 11; // taller to fit two lines of trilingual text
+    const lines = splitPdfText(crit, cw - 12);
+    const ROW = Math.max(11, 4 + Math.min(lines.length, 3) * 4); // fit wrapped trilingual text
     needsPage(ROW + 1);
     const wdrChecked = ins.withdrawal && ins.withdrawal[i];
     fillRect(M, y, cw, ROW, wdrChecked ? [255,245,245] : (i % 2 === 0 ? LGRAY : WHITE));
     drawRect(M, y, cw, ROW, wdrChecked ? RED : MGRAY);
     checkBox(M + 2, y + 4.5, wdrChecked, RED);
     setFont(6.5, 'normal', [25, 25, 35]);
-    const lines = doc.splitTextToSize(crit, cw - 12);
-    txt(lines[0] || '', M + 8, y + 4.3);
-    if (lines[1]) {
-      setFont(6, 'normal', DGRAY);
-      txt(lines[1], M + 8, y + 8.3);
-    }
+    lines.slice(0, 3).forEach((l, li) => {
+      if (li > 0) setFont(6, 'normal', DGRAY);
+      txt(l, M + 8, y + 4.3 + li * 4);
+    });
     y += ROW;
   });
   y += 4;
@@ -7525,7 +7723,7 @@ async function generateInspectionPDF(ins, returnBase64 = false) {
   drawRect(M, y, cw, 20, MGRAY);
   if (ins.note) {
     setFont(8, 'normal', [25, 25, 35]);
-    const noteLines = doc.splitTextToSize(ins.note, cw - 6);
+    const noteLines = splitPdfText(ins.note, cw - 6);
     noteLines.slice(0, 4).forEach((l, i) => txt(l, M + 3, y + 6 + i * 4.5));
   }
   y += 22;
@@ -7592,9 +7790,9 @@ async function generateInspectionPDF(ins, returnBase64 = false) {
   setFont(6, 'normal', DGRAY);
   const noteDE = 'DE: Das Datumsetikett (Ø 10mm) mit dem nächsten Prüfdatum wird nur bei Urteil GEBRAUCHSTAUGLICH angebracht. AUSSORTIERTE Ausrüstung erhält sofort das rote SCOS-Etikett und wird isoliert.';
   const noteRO = 'RO: Eticheta de data se aplica doar la verdict ADECVAT UTILIZARII. Echipamentul RETRAS primeste imediat eticheta rosie SCOS DIN UZ si se izoleaza.';
-  const lEN = doc.splitTextToSize(noteEN, cw - 6);
-  const lDE = doc.splitTextToSize(noteDE, cw - 6);
-  const lRO = doc.splitTextToSize(noteRO, cw - 6);
+  const lEN = splitPdfText(noteEN, cw - 6);
+  const lDE = splitPdfText(noteDE, cw - 6);
+  const lRO = splitPdfText(noteRO, cw - 6);
   setFont(6, 'normal', [25, 25, 35]);
   txt(lEN[0] || '', M + 3, y + 9);
   setFont(6, 'normal', DGRAY);
