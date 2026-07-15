@@ -5686,12 +5686,93 @@ function getUserManualLink(product) {
   };
 }
 
+// ── Al doilea link de manual: adăugat/salvat manual de utilizator ─────────
+// Stocat separat de catalogul curatat (manualUrl), cheie brand|model — merge
+// pe orice produs (din PRODUCT_DB sau customCatalog) fără să-l cloneze.
+function manualLinkKey(product) {
+  return (product.brand + '|' + product.model).trim().toLowerCase();
+}
+
+function getSavedUserManualLink(product) {
+  const key = manualLinkKey(product);
+  return (db.userManualLinks && db.userManualLinks[key]) || null;
+}
+
+function saveUserManualLink(brand, model) {
+  const key = (brand + '|' + model).trim().toLowerCase();
+  const input = document.getElementById('user-manual-url-input');
+  const url = input ? input.value.trim() : '';
+  if (!db.userManualLinks) db.userManualLinks = {};
+  if (!url) {
+    toast('Introdu un link înainte de a salva.', 'error');
+    return;
+  }
+  try { new URL(url); } catch(e) {
+    toast('Link invalid — verifică formatul (https://…).', 'error');
+    return;
+  }
+  db.userManualLinks[key] = { url, addedAt: new Date().toISOString() };
+  saveDB();
+  toast('🔗 Link personal salvat.', 'success');
+  // Reîmprospătează secțiunea din modal fără a-l închide
+  const p = { brand, model };
+  const section = document.getElementById('user-manual-link-section');
+  if (section) section.outerHTML = renderUserManualLinkSection(brand, model);
+}
+
+function deleteUserManualLink(brand, model) {
+  const key = (brand + '|' + model).trim().toLowerCase();
+  if (!db.userManualLinks) return;
+  delete db.userManualLinks[key];
+  saveDB();
+  toast('Link personal șters.', 'info');
+  const section = document.getElementById('user-manual-link-section');
+  if (section) section.outerHTML = renderUserManualLinkSection(brand, model);
+}
+
+function editUserManualLink(brand, model) {
+  const section = document.getElementById('user-manual-link-section');
+  if (section) section.outerHTML = renderUserManualLinkSection(brand, model, true);
+  const input = document.getElementById('user-manual-url-input');
+  if (input) input.focus();
+}
+
+function renderUserManualLinkSection(brand, model, forceEdit = false) {
+  const saved = getSavedUserManualLink({ brand, model });
+  const brandEsc = brand.replace(/'/g, "\\'");
+  const modelEsc = model.replace(/'/g, "\\'");
+  const showEditor = forceEdit || !saved;
+  return `
+    <div class="prod-detail-section" id="user-manual-link-section">
+      <div class="prod-detail-label">Link manual alternativ (adăugat de tine)</div>
+      <div class="recall-panel none">
+        <div style="font-size:12px;color:var(--text3);line-height:1.5;margin-bottom:10px">
+          Al doilea link, separat de manualul oficial de mai sus — poți adăuga aici o adresă proprie (alt distribuitor, copie locală, PDF salvat etc.). Se salvează în aplicație pentru acest produs.
+        </div>
+        ${saved && !showEditor ? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+            <a href="${saved.url}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="text-decoration:none">🔗 Deschide link personal ↗</a>
+            <button class="btn btn-sec btn-sm" onclick="editUserManualLink('${brandEsc}','${modelEsc}')">✏️ Editează</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteUserManualLink('${brandEsc}','${modelEsc}')">🗑 Șterge</button>
+          </div>
+          <div style="font-family:var(--font-m);font-size:11px;color:var(--text3);word-break:break-all">${saved.url}</div>
+        ` : `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="url" id="user-manual-url-input" placeholder="https://..." value="${saved ? saved.url : ''}" style="flex:1;min-width:200px">
+            <button class="btn btn-primary btn-sm" onclick="saveUserManualLink('${brandEsc}','${modelEsc}')">💾 Salvează</button>
+            ${saved ? `<button class="btn btn-ghost btn-sm" onclick="document.getElementById('user-manual-link-section').outerHTML=renderUserManualLinkSection('${brandEsc}','${modelEsc}',false)">Anulează</button>` : ''}
+          </div>
+        `}
+      </div>
+    </div>`;
+}
+
 // ═══════════════════════════════════════════════════════
 // DATA LAYER
 // ═══════════════════════════════════════════════════════
 
 const DB_KEY = 'alpicheck_db';
-let db = { equipment: [], inspections: [] };
+let db = { equipment: [], inspections: [], userManualLinks: {} };
 
 // ═══════════════════════════════════════════════════════════════
 // GOOGLE APPS SCRIPT SYNC — zero OAuth, zero popup
@@ -5848,7 +5929,8 @@ function loadDB() {
     if (!db.equipment) db.equipment = [];
     if (!db.inspections) db.inspections = [];
     if (!db.customCatalog) db.customCatalog = [];
-  } catch(e) { db = { equipment: [], inspections: [], customCatalog: [] }; }
+    if (!db.userManualLinks) db.userManualLinks = {};
+  } catch(e) { db = { equipment: [], inspections: [], customCatalog: [], userManualLinks: {} }; }
   // Seed demo data if empty — salveaza direct fara a declansa sync GAS
   if (db.equipment.length === 0) {
     seedDemo();
@@ -8306,7 +8388,7 @@ function showCatalogProductDetail(pJson) {
     </div>` : ''}
 
     <div class="prod-detail-section">
-      <div class="prod-detail-label">User manual</div>
+      <div class="prod-detail-label">Manual oficial (verificat de SicherShield)</div>
       <div class="recall-panel none">
         <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:10px">
           ${manual.mode === 'direct'
@@ -8324,6 +8406,8 @@ function showCatalogProductDetail(pJson) {
         <div style="font-family:var(--font-m);font-size:11px;color:var(--text3);margin-top:8px">${manual.label}</div>
       </div>
     </div>
+
+    ${renderUserManualLinkSection(p.brand, p.model)}
 
     <div class="prod-detail-section">
       <div class="prod-detail-label">Recall producător</div>
@@ -8544,6 +8628,7 @@ async function _uploadCatalogToDrive() {
       notes:    p.notes    || '',
       manualUrl: getUserManualLink(p).url || '',
       manualSource: getUserManualLink(p).label,
+      userManualUrl: (getSavedUserManualLink(p) || {}).url || '',
       recall:   p.recall   ? {
         status:      p.recall.status,
         ref:         p.recall.ref         || '',
